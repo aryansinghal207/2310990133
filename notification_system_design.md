@@ -211,3 +211,139 @@ For real-time notifications, we implement Server-Sent Events (SSE):
     ```
 
 This allows instant delivery of new notifications without polling.
+
+## Stage 2
+
+### Database Choice
+I recommend using **PostgreSQL** as the persistent storage for the notification platform.
+
+**Reasons for choosing PostgreSQL:**
+- **ACID Compliance**: Ensures data integrity, especially important for notifications where delivery confirmation is critical.
+- **Advanced Features**: Supports JSONB for flexible data storage, full-text search, and advanced indexing options.
+- **Scalability**: Handles large datasets efficiently with partitioning and indexing.
+- **Reliability**: Mature, open-source, with strong community support and enterprise features.
+- **SQL Standards**: Full SQL compliance makes it easier for developers familiar with relational databases.
+- **Performance**: Excellent for read-heavy workloads like notification retrieval, with optimizations for concurrent access.
+
+Compared to alternatives:
+- **MySQL**: Similar but less advanced in JSON handling and some PostgreSQL-specific features.
+- **MongoDB**: Good for unstructured data, but relational queries and joins are better suited for notifications with user relationships.
+- **SQLite**: Not suitable for production multi-user systems.
+
+### Database Schema
+
+```sql
+-- Users table (assuming basic user info)
+CREATE TABLE users (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    email VARCHAR(255) UNIQUE NOT NULL,
+    name VARCHAR(255) NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Notifications table
+CREATE TABLE notifications (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    type VARCHAR(50) NOT NULL CHECK (type IN ('Event', 'Result', 'Placement')),
+    title VARCHAR(255) NOT NULL,
+    message TEXT NOT NULL,
+    status VARCHAR(20) DEFAULT 'unread' CHECK (status IN ('read', 'unread')),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    recipient_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE
+);
+
+-- Indexes for performance
+CREATE INDEX idx_notifications_recipient_id ON notifications(recipient_id);
+CREATE INDEX idx_notifications_status ON notifications(status);
+CREATE INDEX idx_notifications_type ON notifications(type);
+CREATE INDEX idx_notifications_created_at ON notifications(created_at DESC);
+CREATE INDEX idx_notifications_recipient_status ON notifications(recipient_id, status);
+CREATE INDEX idx_notifications_recipient_type ON notifications(recipient_id, type);
+```
+
+### Problems with Data Volume Increase
+
+As the data volume grows (50,000+ students, millions of notifications):
+1. **Query Performance Degradation**: Full table scans become slower, especially for unread notifications.
+2. **Storage Costs**: Increased disk space and backup times.
+3. **Index Maintenance Overhead**: Updates to indexes slow down INSERT/UPDATE operations.
+4. **Memory Usage**: Larger datasets require more RAM for caching and query processing.
+5. **Backup/Restore Times**: Longer downtime during maintenance.
+6. **Concurrency Issues**: Higher contention for popular data.
+
+### Solutions
+
+1. **Indexing Strategy**:
+   - Composite indexes on frequently queried columns (recipient_id + status, recipient_id + type).
+   - Partial indexes for specific conditions (e.g., unread notifications).
+
+2. **Partitioning**:
+   - Partition notifications table by date ranges (monthly/yearly) to improve query performance and maintenance.
+
+3. **Archiving**:
+   - Move old read notifications to archive tables after a certain period.
+
+4. **Caching**:
+   - Use Redis for frequently accessed data like unread counts.
+
+5. **Read Replicas**:
+   - Offload read queries to replica databases.
+
+6. **Connection Pooling**:
+   - Use connection pools to manage database connections efficiently.
+
+### SQL Queries for REST APIs
+
+Based on the Stage 1 API design:
+
+1. **GET /api/notifications** (with pagination and filters):
+```sql
+SELECT id, type, title, message, status, created_at, updated_at
+FROM notifications
+WHERE recipient_id = $1
+  AND ($2::text IS NULL OR type = $2)
+  AND ($3::text IS NULL OR status = $3)
+ORDER BY created_at DESC
+LIMIT $4 OFFSET (($5 - 1) * $4);
+```
+Parameters: recipient_id, type_filter, status_filter, limit, page
+
+2. **POST /api/notifications** (insert):
+```sql
+INSERT INTO notifications (type, title, message, recipient_id)
+SELECT $1, $2, $3, unnest($4::uuid[])
+RETURNING id, type, title, message, status, created_at, updated_at;
+```
+Parameters: type, title, message, recipient_ids_array
+
+3. **PATCH /api/notifications/{id}/read**:
+```sql
+UPDATE notifications
+SET status = 'read', updated_at = NOW()
+WHERE id = $1 AND recipient_id = $2
+RETURNING id, status, updated_at;
+```
+Parameters: notification_id, recipient_id
+
+4. **DELETE /api/notifications/{id}**:
+```sql
+DELETE FROM notifications
+WHERE id = $1 AND recipient_id = $2;
+```
+Parameters: notification_id, recipient_id
+
+5. **GET /api/notifications/stats**:
+```sql
+SELECT
+    COUNT(*) as total,
+    COUNT(*) FILTER (WHERE status = 'unread') as unread,
+    jsonb_object_agg(type, type_count) as by_type
+FROM (
+    SELECT type, COUNT(*) as type_count
+    FROM notifications
+    WHERE recipient_id = $1
+    GROUP BY type
+) sub;
+```
+Parameters: recipient_id
