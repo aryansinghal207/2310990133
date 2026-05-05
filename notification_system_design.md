@@ -479,3 +479,128 @@ Fetching notifications on every page load overwhelms the database because:
 
 **Recommended Strategy:**
 Implement caching + read replicas + lazy loading for immediate relief, then add WebSockets for real-time features.
+
+## Stage 5
+
+### Shortcomings of Current Implementation
+
+The pseudocode `notify_all(student_ids, message)` has several critical issues:
+
+1. **Sequential Processing**: Processes one student at a time, taking ~50,000 × (email_time + db_time) = hours.
+2. **No Error Handling**: If `send_email` fails for one student, the whole process stops.
+3. **No Rollback**: Failed emails don't undo DB saves, causing inconsistency.
+4. **Resource Exhaustion**: Holds connections open for the entire process.
+5. **No Monitoring**: No logging or progress tracking.
+6. **Blocking Operations**: Synchronous calls block the entire process.
+
+When `send_email` fails for 200 students midway:
+- Process stops abruptly.
+- Inconsistent state: some students have DB entries but no emails.
+- No way to resume or retry failed operations.
+- Users get partial notifications.
+
+### Redesign for Reliability and Speed
+
+**Key Principles:**
+- **Asynchronous Processing**: Use queues and workers for parallel processing.
+- **Transactional Consistency**: Ensure email and DB operations are atomic.
+- **Idempotency**: Allow safe retries without duplicates.
+- **Monitoring**: Track progress and failures.
+- **Circuit Breakers**: Handle external service failures gracefully.
+
+**Architecture:**
+- Message queue (e.g., RabbitMQ, Redis Queue) for job distribution.
+- Worker processes for parallel email sending.
+- Transactional DB operations.
+- Dead letter queues for failed messages.
+- Monitoring dashboard.
+
+### Should DB Save and Email Happen Together?
+
+**No, they should NOT happen together in a single transaction.**
+
+**Reasons:**
+1. **Different Failure Modes**: Email service failures shouldn't block DB writes.
+2. **Performance**: Email APIs are slow (seconds), DB operations are fast (milliseconds).
+3. **Scalability**: Separating allows independent scaling of email and DB services.
+4. **Reliability**: Email failures can be retried without affecting committed data.
+5. **Consistency**: Use eventual consistency with compensation actions.
+
+**Better Approach:**
+- Save to DB first (fast, reliable).
+- Queue email job separately.
+- Use sagas or compensation transactions for complex scenarios.
+
+### Revised Pseudocode
+
+```python
+async function notify_all(student_ids, message):
+    # Step 1: Bulk insert notifications (fast, reliable)
+    try:
+        await db.transaction(async (tx) => {
+            const notifications = student_ids.map(id => ({
+                student_id: id,
+                message: message,
+                status: 'pending',
+                created_at: now()
+            }));
+            await tx.bulk_insert('notifications', notifications);
+        });
+        Log('backend', 'info', 'service', `Bulk inserted ${student_ids.length} notifications`);
+    except error:
+        Log('backend', 'fatal', 'db', `Bulk insert failed: ${error.message}`);
+        throw error;
+
+    # Step 2: Queue email jobs (asynchronous, parallel)
+    const email_jobs = student_ids.map(id => ({
+        student_id: id,
+        message: message,
+        retry_count: 0,
+        max_retries: 3
+    }));
+    
+    await queue.publish_batch('email_notifications', email_jobs);
+    Log('backend', 'info', 'service', `Queued ${email_jobs.length} email jobs`);
+
+# Email Worker (separate process)
+async function process_email_job(job):
+    const { student_id, message, retry_count } = job;
+    
+    try:
+        await send_email(student_id, message);
+        await db.update('notifications', 
+            { status: 'sent' }, 
+            { student_id, message }
+        );
+        Log('backend', 'info', 'service', `Email sent to ${student_id}`);
+    except error:
+        if (retry_count < job.max_retries) {
+            await queue.requeue(job, { retry_count: retry_count + 1 });
+            Log('backend', 'warn', 'service', `Email retry ${retry_count + 1} for ${student_id}`);
+        } else {
+            await db.update('notifications', 
+                { status: 'failed' }, 
+                { student_id, message }
+            );
+            Log('backend', 'error', 'service', `Email failed permanently for ${student_id}`);
+        }
+    }
+
+# Push notification (real-time, separate from email)
+async function push_to_app(student_id, message):
+    try:
+        await websocket.broadcast(student_id, {
+            type: 'notification',
+            message: message
+        });
+        Log('backend', 'info', 'service', `Push notification sent to ${student_id}`);
+    except error:
+        Log('backend', 'warn', 'service', `Push notification failed for ${student_id}: ${error.message}`);
+```
+
+**Benefits:**
+- **Speed**: Bulk DB insert + parallel email processing.
+- **Reliability**: Failed emails don't stop the process, retries handle temporary failures.
+- **Consistency**: DB state is always consistent, email status tracked separately.
+- **Monitoring**: Full logging of each step.
+- **Scalability**: Workers can be scaled independently.
