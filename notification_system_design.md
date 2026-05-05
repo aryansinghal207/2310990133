@@ -409,3 +409,73 @@ WHERE type = 'Placement'
 ```
 
 This finds students who got placement notifications in the last 7 days.
+
+## Stage 4
+
+### Performance Issues
+Fetching notifications on every page load overwhelms the database because:
+- 50,000+ concurrent users hitting the endpoint simultaneously.
+- Complex queries with joins, filters, and sorting.
+- No caching leads to repeated expensive DB operations.
+- Real-time requirements increase load.
+
+### Solutions
+
+#### 1. Caching Strategy
+**Implementation:**
+- Use Redis/Memcached for notification data.
+- Cache unread counts and recent notifications per user.
+- Cache TTL: 5-10 minutes for dynamic data.
+
+**Tradeoffs:**
+- **Pros**: Dramatically reduces DB load (90%+), faster response times.
+- **Cons**: Stale data possible, cache invalidation complexity, additional infrastructure cost.
+- **Best for**: Read-heavy workloads with acceptable staleness.
+
+#### 2. Pagination and Lazy Loading
+**Implementation:**
+- Load only first 10-20 notifications initially.
+- Load more on scroll/demand.
+- Use cursor-based pagination instead of offset.
+
+**Tradeoffs:**
+- **Pros**: Reduces initial load, better UX for large lists.
+- **Cons**: More complex frontend, multiple API calls, potential UX fragmentation.
+- **Best for**: Large notification lists.
+
+#### 3. Database Optimization
+**Implementation:**
+- Read replicas for SELECT queries.
+- Query optimization and proper indexing.
+- Connection pooling and prepared statements.
+
+**Tradeoffs:**
+- **Pros**: Improved query performance without code changes.
+- **Cons**: Higher infrastructure cost, replication lag, maintenance overhead.
+- **Best for**: Immediate performance gains.
+
+#### 4. Background Processing
+**Implementation:**
+- Pre-compute notification feeds in background.
+- Use message queues for async processing.
+- Push notifications via WebSockets/SSE instead of polling.
+
+**Tradeoffs:**
+- **Pros**: Consistent performance, real-time updates.
+- **Cons**: High complexity, potential message loss, debugging difficulty.
+- **Best for**: Real-time notification systems.
+
+#### 5. Hybrid Approach (Recommended)
+**Implementation:**
+- Redis caching for hot data (unread counts, recent notifications).
+- Database for cold data with optimized queries.
+- WebSocket connections for real-time updates.
+- CDN for static assets.
+
+**Tradeoffs:**
+- **Pros**: Balances performance and consistency, scalable.
+- **Cons**: Complex architecture, higher operational cost.
+- **Best for**: Production systems requiring high performance and real-time features.
+
+**Recommended Strategy:**
+Implement caching + read replicas + lazy loading for immediate relief, then add WebSockets for real-time features.
