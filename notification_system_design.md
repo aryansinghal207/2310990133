@@ -604,3 +604,70 @@ async function push_to_app(student_id, message):
 - **Consistency**: DB state is always consistent, email status tracked separately.
 - **Monitoring**: Full logging of each step.
 - **Scalability**: Workers can be scaled independently.
+
+## Stage 6
+
+### Priority Inbox Implementation
+
+**Approach:**
+- **Priority Calculation**: Assign weights (Placement: 3, Result: 2, Event: 1).
+- **Sorting Logic**: First by priority (descending), then by timestamp (descending for most recent).
+- **Data Source**: Fetch from the evaluation API endpoint.
+- **Output**: Top N notifications (configurable, default 10).
+
+**Code Implementation:**
+The `priority_inbox.js` file contains a working Node.js implementation that:
+1. Fetches notifications from the API.
+2. Sorts them using the priority algorithm.
+3. Displays the top 10 with details.
+
+**Maintaining Top 10 Efficiently:**
+Since new notifications arrive continuously, we need an efficient way to maintain the priority-ordered top 10 without re-sorting the entire list each time.
+
+**Strategies:**
+1. **Priority Queue/Heap**: Maintain a max-heap of size 10 with priority as key. When new notifications arrive, compare with heap minimum and insert if higher priority or same priority but newer timestamp.
+
+2. **Sorted Cache**: Keep notifications in a sorted data structure (e.g., Redis sorted set) with composite score combining priority weight and timestamp.
+
+3. **Incremental Updates**: Use WebSocket/SSE to receive new notifications and update the priority list in real-time.
+
+4. **Hybrid Approach**: 
+   - Cache recent high-priority notifications in Redis.
+   - Use a priority queue for real-time updates.
+   - Periodically refresh from API for consistency.
+
+**Recommended Implementation:**
+```javascript
+// Using a Max Heap for O(log n) insertions
+class PriorityInbox {
+  constructor(maxSize = 10) {
+    this.maxSize = maxSize;
+    this.heap = [];
+  }
+
+  add(notification) {
+    const priority = this.calculatePriority(notification);
+    const item = { notification, priority };
+
+    if (this.heap.length < this.maxSize) {
+      this.heap.push(item);
+      this.bubbleUp(this.heap.length - 1);
+    } else if (priority > this.heap[0].priority) {
+      this.heap[0] = item;
+      this.sinkDown(0);
+    }
+  }
+
+  calculatePriority(notif) {
+    const weights = { 'Placement': 3, 'Result': 2, 'Event': 1 };
+    const basePriority = weights[notif.Type] || 0;
+    const timestamp = new Date(notif.Timestamp).getTime();
+    // Combine priority and recency (higher timestamp = more recent)
+    return basePriority * 1000000000000 + timestamp;
+  }
+
+  // Heap operations...
+}
+```
+
+This approach ensures O(log n) time for insertions while maintaining the top 10 efficiently as new notifications stream in.
