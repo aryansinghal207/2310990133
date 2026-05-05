@@ -44,8 +44,10 @@ async function getPriorityInbox(token, limit = 10) {
 
 // Main execution
 async function main() {
-  // Replace with actual token
-  const token = process.env.ACCESS_TOKEN || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJNYXBDbGFpbXMiOnsiYXVkIjoiaHR0cDovLzIwLjI0NC41Ni4xNDQvZXZhbHVhdGlvbi1zZXJ2aWNlIiwiZW1haWwiOiJhcnlhbjAxMzNiZTIzQGNoaXRrYXJhLmVkdS5pbiIsImV4cCI6MTc3Nzk2MTUxMSwiaWF0IjoxNzc3OTYwNjExLCJpc3MiOiJBZmZvcmQgTWVkaWNhbCBUZWNobm9sb2dpZXMgUHJpdmF0ZSBMaW1pdGVkIiwianRpIjoiZTg2ZDZhOTQtNmZkOS00ZWJkLTg4ZGEtOTdmMjIxYmJkOGE0IiwibG9jYWxlIjoiZW4tSU4iLCJuYW1lIjoiYXJ5YW4gc2luZ2hhbCIsInN1YiI6Ijg0MGY4N2JmLWM1MTUtNDM0MS04ZDk0LTI1YmYwMDc1ZTIzZSJ9LCJlbWFpbCI6ImFyeWFuMDEzM2JlMjNAY2hpdGthcmEuZWR1LmluIiwibmFtZSI6ImFyeWFuIHNpbmdoYWwiLCJyb2xsTm8iOiIyMzFvOTlvMTMzIiwiYWNjZXNzQ29kZSI6IkVYZnZEcCIsImNsaWVudElEIjoiODQwZjg3YmYtYzUxNS00MzQxLThkOTQtMjViZjAwNzVlMjNlIiwiY2xpZW50U2VjcmV0IjoidHJoS05xSkRacFlNbVNkciJ9._awHGxS5d07xUyGTkjRTLTD825NsVX0jW-msZnCOfzA';
+  const token = process.env.ACCESS_TOKEN;
+  if (!token) {
+    throw new Error('ACCESS_TOKEN is required in the environment to fetch notifications.');
+  }
 
   try {
     const topNotifications = await getPriorityInbox(token, 10);

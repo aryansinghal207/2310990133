@@ -1,4 +1,4 @@
-const Log = async (stack, level, package, message) => {
+const Log = async (stack, level, pkg, message) => {
   const token = process.env.ACCESS_TOKEN;
   if (!token) {
     console.error('ACCESS_TOKEN not set');
@@ -12,7 +12,7 @@ const Log = async (stack, level, package, message) => {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${token}`
       },
-      body: JSON.stringify({ stack, level, package, message })
+      body: JSON.stringify({ stack, level, package: pkg, message })
     });
 
     const data = await response.json();

@@ -22,9 +22,14 @@ function App() {
   const fetchNotifications = async () => {
     setLoading(true);
     try {
+      const token = import.meta.env.VITE_ACCESS_TOKEN || window.ACCESS_TOKEN;
+      if (!token) {
+        throw new Error('ACCESS_TOKEN is not configured');
+      }
+
       const response = await fetch('http://20.207.122.201/evaluation-service/notifications', {
         headers: {
-          'Authorization': `Bearer ${window.ACCESS_TOKEN}`
+          'Authorization': `Bearer ${token}`
         }
       });
       const data = await response.json();

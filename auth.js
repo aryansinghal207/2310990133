@@ -5,8 +5,8 @@ const body = {
   githubUsername: "https://github.com/aryansinghal207/",
   rollNo: "2310990133",
   accessCode: "EXfvDp",
-  clientID: "840f87bf-c515-4341-8d94-25bf0075e23e",
-  clientSecret: "tihKNqJDZpYMmSdr"
+  clientID: "YOUR_CLIENT_ID",
+  clientSecret: "YOUR_CLIENT_SECRET"
 };
 
 fetch('http://20.207.122.201/evaluation-service/auth', {

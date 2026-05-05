@@ -5,16 +5,16 @@ const tests = [
     name: 'aryan singhal',
     rollNo: '2310990133',
     accessCode: 'EXfvDp',
-    clientID: '840f87bf-c515-4341-8d94-25bf0075e23e',
-    clientSecret: 'tihKNqJDZpYMmSdr'
+    clientID: 'YOUR_CLIENT_ID',
+    clientSecret: 'YOUR_CLIENT_SECRET'
   },
   {
     email: 'aryan0133.be23@chitkara.edu.in',
     name: 'aryan singhal',
     rollNo: '2310990133',
     accessCode: 'EXfvDp',
-    clientID: '840f87bf-c515-4341-8d94-25bf0075e23e',
-    clientSecret: 'tihKNqJDZpYMmSdr'
+    clientID: 'YOUR_CLIENT_ID',
+    clientSecret: 'YOUR_CLIENT_SECRET'
   }
 ];
 

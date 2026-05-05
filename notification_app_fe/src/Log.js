@@ -1,6 +1,6 @@
 // Log function for frontend
 const Log = async (stack, level, pkg, message) => {
-  const token = window.ACCESS_TOKEN;
+  const token = import.meta.env.VITE_ACCESS_TOKEN || window.ACCESS_TOKEN;
   if (!token) {
     console.error('ACCESS_TOKEN not set');
     return;
