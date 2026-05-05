@@ -347,3 +347,65 @@ FROM (
 ) sub;
 ```
 Parameters: recipient_id
+
+## Stage 3
+
+### Query Analysis
+
+The query `SELECT * FROM notifications WHERE studentID = 1042 AND isRead = false ORDER BY createdAt ASC;` has several issues:
+
+**Accuracy Issues:**
+- Column names are inconsistent: `studentID` should be `recipient_id`, `isRead` should be `status`.
+- The query assumes `status` is boolean, but in our schema it's VARCHAR ('read'/'unread').
+- Corrected query: `SELECT * FROM notifications WHERE recipient_id = '1042' AND status = 'unread' ORDER BY created_at ASC;`
+
+**Performance Issues:**
+- Without proper indexing, this query performs a full table scan on 5,000,000 rows.
+- For user 1042, it still needs to scan all unread notifications to find those for this user.
+- ORDER BY on unindexed column causes filesort.
+- With 50,000 students and 5M notifications, average ~100 notifications per student, but scanning millions is inefficient.
+
+**Why it's slow:**
+- No index on `recipient_id` + `status` combination.
+- Large table size requires scanning most rows.
+- Sorting without index on `created_at`.
+
+### Improvements
+
+**Optimized Query:**
+```sql
+SELECT id, type, title, message, status, created_at, updated_at
+FROM notifications
+WHERE recipient_id = $1 AND status = 'unread'
+ORDER BY created_at ASC;
+```
+
+**Required Indexes:**
+- `CREATE INDEX idx_notifications_recipient_status_created ON notifications(recipient_id, status, created_at);`
+
+**Computation Cost:**
+- Before: O(n) scan of 5M rows + O(k log k) sort (k=unread count for user).
+- After: O(log n) index lookup + O(k) retrieval (k~100).
+- Cost reduction: ~99.99% faster for large datasets.
+
+### Index Advice
+
+Adding indexes on every column is ineffective because:
+- **Overhead**: Each index increases INSERT/UPDATE/DELETE time and storage.
+- **Maintenance Cost**: More indexes = slower writes, higher disk usage.
+- **Query Optimizer Confusion**: Too many indexes can confuse the planner.
+- **Selective Indexing**: Only index columns used in WHERE, JOIN, ORDER BY clauses with high selectivity.
+
+Better approach: Analyze query patterns and add targeted indexes.
+
+### Placement Notifications Query
+
+```sql
+SELECT DISTINCT recipient_id
+FROM notifications
+WHERE type = 'Placement'
+  AND created_at >= NOW() - INTERVAL '7 days'
+  AND status = 'unread';  -- Assuming we want students who received but haven't read
+```
+
+This finds students who got placement notifications in the last 7 days.
